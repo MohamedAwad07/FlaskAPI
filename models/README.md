@@ -30,19 +30,3 @@ Place your trained machine learning models in this directory with the following 
 ## Example Model Loading
 
 The Flask app will automatically load these models on startup. If a model file is not found, the API will use placeholder logic for demonstration purposes.
-
-## Training Your Models
-
-You can train your models using scikit-learn and save them using joblib:
-
-```python
-import joblib
-from sklearn.ensemble import RandomForestClassifier
-
-# Train your model
-model = RandomForestClassifier()
-model.fit(X_train, y_train)
-
-# Save the model
-joblib.dump(model, 'models/your_model_name.pkl')
-```

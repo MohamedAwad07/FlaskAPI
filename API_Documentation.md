@@ -67,6 +67,12 @@ Check the API status and model loading status.
     "recommendation": true,
     "spam_detection": true,
     "sales_prediction": true
+  },
+  "sales_preprocessors_loaded": {
+    "product_type_encoder": true,
+    "marketing_channel_encoder": true,
+    "season_encoder": true,
+    "sales_scaler": true
   }
 }
 ```
@@ -187,19 +193,19 @@ Detect if a user profile is spam based on various metrics.
   "Sales_Consistency": "high",
   "Customer_Feedback": 0.9,
   "Transaction_History": 0.7,
-  "Platform_Interaction": "meduim"
+  "Platform_Interaction": "medium"
 }
 ```
 
 #### Parameters
 
-| Parameter            | Type   | Required | Description                                                  | Example Values                   |
-| -------------------- | ------ | -------- | ------------------------------------------------------------ | -------------------------------- |
-| Profile_Completeness | float  | Yes      | Profile completion (0-1). Should be a float between 0 and 1. | 0.8, 1.0, 0.45                   |
-| Sales_Consistency    | string | Yes      | Categorical: consistency of sales.                           | "high", "medium", "low"          |
-| Customer_Feedback    | float  | Yes      | Customer feedback score (0-1).                               | 0.9, 0.5, 0.0                    |
-| Transaction_History  | float  | Yes      | Transaction history quality (0-1).                           | 0.7, 0.2, 1.0                    |
-| Platform_Interaction | string | Yes      | Categorical: user's interaction with the platform.           | "active", "inactive", "moderate" |
+| Parameter            | Type   | Required | Description                                                  | Example Values          |
+| -------------------- | ------ | -------- | ------------------------------------------------------------ | ----------------------- |
+| Profile_Completeness | float  | Yes      | Profile completion (0-1). Should be a float between 0 and 1. | 0.8, 1.0, 0.45          |
+| Sales_Consistency    | string | Yes      | Categorical: consistency of sales.                           | "high", "medium", "low" |
+| Customer_Feedback    | float  | Yes      | Customer feedback score (0-1).                               | 0.9, 0.5, 0.0           |
+| Transaction_History  | float  | Yes      | Transaction history quality (0-1).                           | 0.7, 0.2, 1.0           |
+| Platform_Interaction | string | Yes      | Categorical: user's interaction with the platform.           | "high", "medium", "low" |
 
 **If a required field is missing or invalid, the API returns a 400 error with a descriptive message.**
 
@@ -212,7 +218,7 @@ Detect if a user profile is spam based on various metrics.
     "Sales_Consistency": "high",
     "Customer_Feedback": 0.9,
     "Transaction_History": 0.7,
-    "Platform_Interaction": "active"
+    "Platform_Interaction": "medium"
   },
   "prediction": "not spam",
   "confidence_score": 0.95,
@@ -253,43 +259,65 @@ Predict sales revenue based on product type, season, marketing channel, ad budge
 
 ```json
 {
-  "product_type": "electronics",
-  "season": "summer",
-  "marketing_channel": "social_media",
-  "ad_budget": 5000,
+  "product_type": "Camera",
+  "season": "Fall",
+  "marketing_channel": "Email",
+  "ad_budget": 5000.0,
   "unit_price": 100,
-  "units_sold": 200
+  "units_sold": 15
 }
 ```
 
 #### Parameters
 
-| Parameter         | Type   | Required | Description            | Valid Values                                               | Example Values |
-| ----------------- | ------ | -------- | ---------------------- | ---------------------------------------------------------- | -------------- |
-| product_type      | string | Yes      | Type of product        | electronics, clothing, books, home, sports                 | "electronics"  |
-| season            | string | Yes      | Season of the year     | spring, summer, fall, winter                               | "summer"       |
-| marketing_channel | string | Yes      | Marketing channel used | social_media, email, tv, print, search, display, affiliate | "social_media" |
-| ad_budget         | float  | Yes      | Advertising budget     | Any positive number                                        | 5000           |
-| unit_price        | float  | Yes      | Price per unit         | Any positive number                                        | 100            |
-| units_sold        | int    | Yes      | Number of units sold   | Any positive integer                                       | 200            |
+| Parameter         | Type   | Required | Description            | Valid Values                                              | Example Values |
+| ----------------- | ------ | -------- | ---------------------- | --------------------------------------------------------- | -------------- |
+| product_type      | string | Yes      | Type of product        | Camera, Headphones, Laptop, Smartphone, TV, Tablet, Watch | "Camera"       |
+| season            | string | Yes      | Season of the year     | Fall, Spring, Summer, Winter                              | "Fall"         |
+| marketing_channel | string | Yes      | Marketing channel used | Affiliate, Direct, Email, Search Engine, Social Media     | "Email"        |
+| ad_budget         | float  | Yes      | Advertising budget     | Any positive number                                       | 5000.0         |
+| unit_price        | float  | Yes      | Price per unit         | Any positive number                                       | 100            |
+| units_sold        | int    | Yes      | Number of units sold   | Any positive integer                                      | 15             |
 
 #### Success Response
 
 ```json
 {
-  "predicted_sales_revenue": 27300.0,
+  "predicted_sales_revenue": 12345.67,
   "input_features": {
-    "product_type": "electronics",
-    "season": "summer",
-    "marketing_channel": "social_media",
-    "ad_budget": 5000,
+    "product_type": "Camera",
+    "season": "Fall",
+    "marketing_channel": "Email",
+    "ad_budget": 5000.0,
     "unit_price": 100,
-    "units_sold": 200
+    "units_sold": 15
   },
-  "note": "Using fallback prediction due to model compatibility issues",
+  "transformed_features": [0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+  "feature_names": [
+    "ad_budget",
+    "unit_price",
+    "units_sold",
+    "product_type_encoded",
+    "season_encoded",
+    "marketing_channel_Affiliate",
+    "marketing_channel_Direct",
+    "marketing_channel_Email",
+    "marketing_channel_Search_Engine",
+    "marketing_channel_Social_Media"
+  ],
   "timestamp": "2024-01-15T10:30:00.000Z"
 }
 ```
+
+#### Response Fields
+
+| Field                   | Type   | Description                             |
+| ----------------------- | ------ | --------------------------------------- |
+| predicted_sales_revenue | float  | Predicted sales revenue amount          |
+| input_features          | object | Original input data provided            |
+| transformed_features    | array  | Preprocessed features used by the model |
+| feature_names           | array  | Names of the transformed features       |
+| timestamp               | string | ISO timestamp of the response           |
 
 #### Error Responses
 
@@ -297,14 +325,87 @@ Predict sales revenue based on product type, season, marketing channel, ad budge
   ```json
   { "error": "Missing required field: product_type" }
   ```
-- **Invalid Value:**
+- **Invalid Category:**
   ```json
-  { "error": "Field product_type cannot be empty" }
+  {
+    "error": "Invalid product_type. Must be one of: ['Camera', 'Headphones', 'Laptop', 'Smartphone', 'TV', 'Tablet', 'Watch']"
+  }
+  ```
+- **Invalid Number:**
+  ```json
+  { "error": "Field ad_budget must be a valid number" }
   ```
 
 #### Fallback Logic
 
-If the model is not available or there are compatibility issues, the API will use fallback logic based on simple heuristics (e.g., multiplying unit price, units sold, and applying multipliers for product type, season, and marketing channel).
+If the model is not available or there are compatibility issues, the API will use fallback logic based on simple heuristics:
+
+- Base revenue = unit_price × units_sold
+- Apply multipliers for product type, season, and marketing channel
+- Apply ad budget effect (simple linear relationship)
+
+The response will include a note indicating fallback usage.
+
+#### Preprocessing Pipeline
+
+The sales prediction endpoint uses the following preprocessing pipeline:
+
+1. **Categorical Encoding:**
+
+   - `product_type`: Label encoded (0-6)
+   - `season`: Label encoded (0-3)
+   - `marketing_channel`: One-hot encoded (5 binary features)
+
+2. **Numerical Scaling:**
+
+   - `ad_budget`, `unit_price`, `units_sold`: Standardized using fitted scaler
+
+3. **Feature Order:**
+   The model expects features in this exact order:
+   - `ad_budget` (scaled)
+   - `unit_price` (scaled)
+   - `units_sold` (scaled)
+   - `product_type_encoded` (label encoded)
+   - `season_encoded` (label encoded)
+   - `marketing_channel_Affiliate` (one-hot)
+   - `marketing_channel_Direct` (one-hot)
+   - `marketing_channel_Email` (one-hot)
+   - `marketing_channel_Search_Engine` (one-hot)
+   - `marketing_channel_Social_Media` (one-hot)
+
+The response includes `transformed_features` and `feature_names` for debugging and transparency.
+
+#### Examples
+
+**Valid Request:**
+
+```bash
+curl -X POST http://localhost:5000/predict-sales \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_type": "Laptop",
+    "season": "Summer",
+    "marketing_channel": "Social Media",
+    "ad_budget": 10000,
+    "unit_price": 999.99,
+    "units_sold": 25
+  }'
+```
+
+**Invalid Category:**
+
+```bash
+curl -X POST http://localhost:5000/predict-sales \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_type": "InvalidProduct",
+    "season": "Summer",
+    "marketing_channel": "Social Media",
+    "ad_budget": 10000,
+    "unit_price": 999.99,
+    "units_sold": 25
+  }'
+```
 
 **Status Codes:**
 
@@ -377,9 +478,9 @@ Body (raw JSON):
   "product_type": "Camera",
   "season": "Fall",
   "marketing_channel": "Email",
-  "ad_budget": 5000,
+  "ad_budget": 5000.0,
   "unit_price": 100,
-  "units_sold": 200
+  "units_sold": 15
 }
 ```
 

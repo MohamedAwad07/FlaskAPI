@@ -8,12 +8,11 @@ import logging
 import pandas as pd
 import numpy as np
 
-# Configure logging
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app) 
 
 # Global variables for models and preprocessors
 recommendation_model = None
@@ -23,10 +22,14 @@ spam_scaler = None
 spam_encoders = {}
 sales_prediction_model = None
 sales_preprocessors = {}
+sales_product_type_encoder = None
+sales_marketing_channel_encoder = None
+sales_season_encoder = None
+sales_scaler = None
 
 def load_models():
     """Load all ML models from their respective subdirectories"""
-    global recommendation_model, popular_products, spam_detection_model, spam_scaler, spam_encoders, sales_prediction_model, sales_preprocessors
+    global recommendation_model, popular_products, spam_detection_model, spam_scaler, spam_encoders, sales_prediction_model, sales_preprocessors, sales_product_type_encoder, sales_marketing_channel_encoder, sales_season_encoder, sales_scaler
     try:
         # Recommendation models
         rec_dir = os.path.join("models", "recomndation")
@@ -115,10 +118,25 @@ def load_models():
         else:
             logging.warning("Sales prediction model not found (sales.pkl).")
             
+        # Load sales preprocessors
+        if sales_prediction_model:
+            sales_preprocessors = {
+                'product_type': joblib.load(os.path.join(sales_dir, 'product_type_encoder.pkl')),
+                'marketing_channel': joblib.load(os.path.join(sales_dir, 'marketing_channel_encoder.pkl')),
+                'season': joblib.load(os.path.join(sales_dir, 'season_encoder.pkl')),
+                'scaler': joblib.load(os.path.join(sales_dir, 'sales_scaler.pkl'))
+            }
+            sales_product_type_encoder = sales_preprocessors['product_type']
+            sales_marketing_channel_encoder = sales_preprocessors['marketing_channel']
+            sales_season_encoder = sales_preprocessors['season']
+            sales_scaler = sales_preprocessors['scaler']
+        else:
+            logging.warning("Sales prediction model not loaded, sales preprocessors not available")
+            
     except Exception as e:
         logging.error(f"Error loading models: {str(e)}")
 
-# Load models when module is imported
+# Load models
 load_models()
 
 def validate_spam_input(data):
@@ -152,6 +170,11 @@ def validate_sales_input(data):
     """Validate input for sales prediction"""
     required_fields = ["product_type", "season", "marketing_channel", "ad_budget", "unit_price", "units_sold"]
     
+    # Valid categories from the training data
+    valid_product_types = ["Camera", "Headphones", "Laptop", "Smartphone", "TV", "Tablet", "Watch"]
+    valid_seasons = ["Fall", "Spring", "Summer", "Winter"]
+    valid_marketing_channels = ["Affiliate", "Direct", "Email", "Search Engine", "Social Media"]
+    
     for field in required_fields:
         if field not in data:
             return False, f"Missing required field: {field}"
@@ -162,6 +185,14 @@ def validate_sales_input(data):
                 return False, f"Field {field} must be a string"
             if not data[field].strip():
                 return False, f"Field {field} cannot be empty"
+            
+            # Check if the value is in the valid categories
+            if field == "product_type" and data[field] not in valid_product_types:
+                return False, f"Invalid product_type. Must be one of: {valid_product_types}"
+            elif field == "season" and data[field] not in valid_seasons:
+                return False, f"Invalid season. Must be one of: {valid_seasons}"
+            elif field == "marketing_channel" and data[field] not in valid_marketing_channels:
+                return False, f"Invalid marketing_channel. Must be one of: {valid_marketing_channels}"
         
         # Validate numeric fields
         elif field in ["ad_budget", "unit_price", "units_sold"]:
@@ -176,6 +207,7 @@ def validate_sales_input(data):
     return True, "Valid input"
 
 @app.route('/', methods=['GET'])
+
 def welcome():
     """Welcome page with API information"""
     return jsonify({
@@ -211,12 +243,17 @@ def welcome():
                 "method": "POST",
                 "description": "Predict sales revenue based on product and marketing data",
                 "example_input": {
-                    "product_type": "electronics",
-                    "season": "summer",
-                    "marketing_channel": "social_media",
-                    "ad_budget": 5000,
-                    "unit_price": 99.99,
-                    "units_sold": 100
+                    "product_type": "Laptop",
+                    "season": "Summer",
+                    "marketing_channel": "Social Media",
+                    "ad_budget": 10000,
+                    "unit_price": 999.99,
+                    "units_sold": 25
+                },
+                "valid_categories": {
+                    "product_type": ["Camera", "Headphones", "Laptop", "Smartphone", "TV", "Tablet", "Watch"],
+                    "season": ["Fall", "Spring", "Summer", "Winter"],
+                    "marketing_channel": ["Affiliate", "Direct", "Email", "Search Engine", "Social Media"]
                 }
             }
         },
@@ -239,6 +276,17 @@ def health_check():
             "recommendation": recommendation_model is not None or popular_products is not None,
             "spam_detection": spam_detection_model is not None,
             "sales_prediction": sales_prediction_model is not None
+        },
+        "spam_preprocessors_loaded": {
+            "Platform_Interaction_encoder": spam_encoders["Platform_Interaction_encoder"] is not None,
+            "Sales_Consistency_encoder": spam_encoders["Sales_Consistency_encoder"] is not None,
+            "Label_encoder": spam_encoders["Label_encoder"] is not None
+        },
+        "sales_preprocessors_loaded": {
+            "product_type_encoder": sales_product_type_encoder is not None,
+            "marketing_channel_encoder": sales_marketing_channel_encoder is not None,
+            "season_encoder": sales_season_encoder is not None,
+            "sales_scaler": sales_scaler is not None
         }
     })
 
@@ -250,9 +298,12 @@ def recommend_products():
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
+        
         customer_id = data.get('customer_id')
+        
         if not customer_id:
             return jsonify({"error": "customer_id is required"}), 400
+        
         # Validate customer_id is a number and > 1
         try:
             customer_id_num = int(customer_id)
@@ -335,39 +386,47 @@ def detect_spam():
         
         # Prepare features for prediction
         if spam_detection_model and spam_scaler:
-            # Handle numeric features
-            numeric_features = [
-                data["Profile_Completeness"],
-                data["Customer_Feedback"],
-                data["Transaction_History"]
-            ]
+
+            features = []
             
-            # Handle categorical features using encoders
+            # 1. Profile_Completeness (numeric)
+            features.append(data["Profile_Completeness"])
+            
+            # 2. Sales_Consistency (categorical - needs encoding)
             if "Sales_Consistency_encoder" in spam_encoders:
-                sales_consistency_encoded = spam_encoders["Sales_Consistency_encoder"].transform([[data["Sales_Consistency"]]])[0]
-                numeric_features.append(sales_consistency_encoded)
+                sales_consistency_encoded = spam_encoders["Sales_Consistency_encoder"].transform([[data["Sales_Consistency"]]])[0][0]
+                features.append(sales_consistency_encoded)
             else:
                 # Fallback: use 0.5 if encoder not available
-                numeric_features.append(0.5)
+                features.append(0.5)
+            
+            features.append(data["Customer_Feedback"])
+            
+            features.append(data["Transaction_History"])
             
             if "Platform_Interaction_encoder" in spam_encoders:
-                platform_interaction_encoded = spam_encoders["Platform_Interaction_encoder"].transform([[data["Platform_Interaction"]]])[0]
-                numeric_features.append(platform_interaction_encoded)
+                platform_interaction_encoded = spam_encoders["Platform_Interaction_encoder"].transform([[data["Platform_Interaction"]]])[0][0]
+                features.append(platform_interaction_encoded)
             else:
                 # Fallback: use 0.5 if encoder not available
-                numeric_features.append(0.5)
+                features.append(0.5)
             
-            # Scale features
-            #TODO: Are Platform_Interaction and Sales_Consistency included here or not?
-            features_scaled = spam_scaler.transform([numeric_features])
+            logger.info(f"Encoded features before scaling: {features}")
             
-            print("Original features:", numeric_features)
-            print("Features scaled:", features_scaled)
-            print("Features scaled shape:", features_scaled.shape)
-            print("Spam detection model:", spam_detection_model)
-            print("Model prediction:", spam_detection_model.predict(features_scaled))
+            features_scaled = spam_scaler.transform([features])
+            logger.info(f"Scaled features: {features_scaled}")
+            logger.info(f"Scaled features shape: {features_scaled.shape}")
             
+            # Model prediction
             prediction = spam_detection_model.predict(features_scaled)[0]
+            logger.info(f"Raw model prediction: {prediction}")
+            
+            # Prediction probabilities (if available)
+            if hasattr(spam_detection_model, 'predict_proba'):
+                proba = spam_detection_model.predict_proba(features_scaled)[0]
+                logger.info(f"Prediction probabilities: {proba}")
+            else:
+                proba = None
             
             # Convert prediction to label using Label encoder if available
             if "Label_encoder" in spam_encoders:
@@ -377,8 +436,8 @@ def detect_spam():
                         label = "spam"
                     else:
                         label = "not spam"
-                except:
-                    # Fallback if inverse transform fails
+                except Exception as e:
+                    logger.error(f"Error in label inverse transform: {e}")
                     label = "not spam" if prediction == 0 else "spam"
             #else:
             #    # Fallback: map 0/1 to labels
@@ -386,17 +445,17 @@ def detect_spam():
             
             #confidence = float(max(spam_detection_model.predict_proba(features_scaled)[0])) if hasattr(spam_detection_model, 'predict_proba') else None
             
-        else:
-            # Fallback logic if model or scaler not available
+        #else:
+        #    # Fallback logic if model or scaler not available
 
-            numeric_features = [
-                data["Profile_Completeness"],
-                data["Customer_Feedback"],
-                data["Transaction_History"]
-            ]
-            avg_score = sum(numeric_features) / len(numeric_features)
-            label = "spam" if avg_score < 0.5 else "not spam"
-            confidence = avg_score
+        #    numeric_features = [
+        #        data["Profile_Completeness"],
+        #        data["Customer_Feedback"],
+        #        data["Transaction_History"]
+        #    ]
+        #    avg_score = sum(numeric_features) / len(numeric_features)
+        #    label = "spam" if avg_score < 0.5 else "not spam"
+        #    confidence = avg_score
         
         return jsonify({
             "input_features": data,
@@ -424,18 +483,61 @@ def predict_sales():
         if not is_valid:
             return jsonify({"error": error_message}), 400
         
+        # Check if encoders and scaler are loaded
+        if not (sales_product_type_encoder and sales_marketing_channel_encoder and 
+                sales_season_encoder and sales_scaler):
+            return jsonify({'error': 'Sales encoders or scaler not loaded'}), 500
+        
+        # Transform input using encoders and scaler
+        try:
+            # Encode categorical features
+            product_type_encoded = sales_product_type_encoder.transform([data['product_type']])[0]
+            season_encoded = sales_season_encoder.transform([data['season']])[0]
+            
+            # One-hot encode marketing_channel (to match the model's expected features)
+            marketing_channel = data['marketing_channel']
+            marketing_channel_Affiliate = 1 if marketing_channel == "Affiliate" else 0
+            marketing_channel_Direct = 1 if marketing_channel == "Direct" else 0
+            marketing_channel_Email = 1 if marketing_channel == "Email" else 0
+            marketing_channel_Search_Engine = 1 if marketing_channel == "Search Engine" else 0
+            marketing_channel_Social_Media = 1 if marketing_channel == "Social Media" else 0
+            
+            # Scale numerical features
+            numerical_data = np.array([[data['ad_budget'], data['unit_price'], data['units_sold']]])
+            numerical_scaled = sales_scaler.transform(numerical_data)[0]
+            
+            # Combine all features in the exact order the model expects
+            features = [
+                numerical_scaled[0],  # ad_budget
+                numerical_scaled[1],  # unit_price
+                numerical_scaled[2],  # units_sold
+                float(product_type_encoded),  # product_type_encoded
+                season_encoded,  # season_encoded
+                marketing_channel_Affiliate,  # marketing_channel_Affiliate
+                marketing_channel_Direct,  # marketing_channel_Direct
+                marketing_channel_Email,  # marketing_channel_Email
+                marketing_channel_Search_Engine,  # marketing_channel_Search Engine
+                marketing_channel_Social_Media  # marketing_channel_Social Media
+            ]
+            
+            features_array = np.array([features])
+            
+        except Exception as e:
+            logging.error(f"Error transforming features: {str(e)}")
+            return jsonify({'error': f'Feature transformation error: {str(e)}'}), 500
+        
+        # Check if model is available
         if sales_prediction_model is None:
             # Provide fallback prediction using simple heuristics
             logging.warning("Sales prediction model not available, using fallback logic")
             
-            # Simple fallback prediction based on input features
             base_revenue = float(data['unit_price']) * int(data['units_sold'])
             
             # Apply some basic multipliers based on features
             multipliers = {
-                'product_type': {'electronics': 1.2, 'clothing': 0.9, 'books': 0.8, 'home': 1.1},
-                'season': {'summer': 1.1, 'winter': 0.9, 'spring': 1.0, 'fall': 1.05},
-                'marketing_channel': {'social_media': 1.15, 'email': 1.0, 'tv': 1.2, 'print': 0.9}
+                'product_type': {'Camera': 1.1, 'Headphones': 0.9, 'Laptop': 1.3, 'Smartphone': 1.2, 'TV': 1.4, 'Tablet': 1.1, 'Watch': 0.8},
+                'season': {'Summer': 1.1, 'Winter': 0.9, 'Spring': 1.0, 'Fall': 1.05},
+                'marketing_channel': {'Social Media': 1.15, 'Email': 1.0, 'Search Engine': 1.1, 'Affiliate': 0.95, 'Direct': 1.05}
             }
             
             product_mult = multipliers['product_type'].get(data['product_type'], 1.0)
@@ -447,68 +549,42 @@ def predict_sales():
             
             predicted_revenue = base_revenue * product_mult * season_mult * marketing_mult * ad_effect
             
+            # Convert NumPy types to Python native types for JSON serialization
+            features_python = [float(f) if isinstance(f, (np.integer, np.floating)) else int(f) for f in features]
+            
             return jsonify({
                 'predicted_sales_revenue': round(predicted_revenue, 2),
                 'input_features': data,
-                'note': 'Using fallback prediction due to model compatibility issues'
+                'transformed_features': features_python,
+                'note': 'Using fallback prediction due to model feature mismatch'
             })
-        
-        # Extract features for model prediction
-        features = {
-            'product_type': data['product_type'],
-            'marketing_channel': data['marketing_channel'],
-            'season': data['season'],
-            'ad_budget': float(data['ad_budget']),
-            'unit_price': float(data['unit_price']),
-            'units_sold': int(data['units_sold'])
-        }
         
         # Make prediction with the model
         try:
-            # Create a DataFrame with the input features
-            input_df = pd.DataFrame([features])
+            # Check if the model expects the same number of features as our preprocessing
+            if hasattr(sales_prediction_model, 'n_features_in_') and sales_prediction_model.n_features_in_ != len(features):
+                logging.warning(f"Model expects {sales_prediction_model.n_features_in_} features but preprocessing provides {len(features)} features. Using fallback logic.")
+                raise ValueError("Feature count mismatch")
             
-            # Make prediction (model should handle preprocessing internally)
-            prediction = sales_prediction_model.predict(input_df)
+            prediction = sales_prediction_model.predict(features_array)
             
-            # Return prediction
+            # Convert NumPy types to Python native types for JSON serialization
+            features_python = [float(f) if isinstance(f, (np.integer, np.floating)) else int(f) for f in features]
+            
             return jsonify({
                 'predicted_sales_revenue': float(prediction[0]),
-                'input_features': features
+                'input_features': data,
+                'transformed_features': features_python,
+                'feature_names': [
+                    'ad_budget', 'unit_price', 'units_sold', 'product_type_encoded', 'season_encoded',
+                    'marketing_channel_Affiliate', 'marketing_channel_Direct', 'marketing_channel_Email',
+                    'marketing_channel_Search_Engine', 'marketing_channel_Social_Media'
+                ]
             })
             
         except Exception as e:
             logging.error(f"Error in sales prediction: {str(e)}")
-            # Check if it's the XGBoost gpu_id error
-            if "gpu_id" in str(e) or "XGBModel" in str(e):
-                logging.warning("XGBoost compatibility issue detected during prediction, using fallback logic")
-                
-                # Use fallback prediction using simple heuristics
-                base_revenue = float(data['unit_price']) * int(data['units_sold'])
-                
-                # Apply some basic multipliers based on features
-                multipliers = {
-                    'product_type': {'electronics': 1.2, 'clothing': 0.9, 'books': 0.8, 'home': 1.1},
-                    'season': {'summer': 1.1, 'winter': 0.9, 'spring': 1.0, 'fall': 1.05},
-                    'marketing_channel': {'social_media': 1.15, 'email': 1.0, 'tv': 1.2, 'print': 0.9}
-                }
-                
-                product_mult = multipliers['product_type'].get(data['product_type'], 1.0)
-                season_mult = multipliers['season'].get(data['season'], 1.0)
-                marketing_mult = multipliers['marketing_channel'].get(data['marketing_channel'], 1.0)
-                
-                # Apply ad budget effect (simple linear relationship)
-                ad_effect = 1.0 + (float(data['ad_budget']) / 10000) * 0.1
-                
-                predicted_revenue = base_revenue * product_mult * season_mult * marketing_mult * ad_effect
-                
-                return jsonify({
-                    'predicted_sales_revenue': round(predicted_revenue, 2),
-                    'input_features': features,
-                    'note': 'Using fallback prediction due to XGBoost compatibility issues'
-                })
-            else:
-                return jsonify({'error': f'Prediction error: {str(e)}'}), 500
+            return jsonify({'error': f'Prediction error: {str(e)}'}), 500
 
     except Exception as e:
         logging.error(f"Error in sales prediction endpoint: {str(e)}")
