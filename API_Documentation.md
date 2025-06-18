@@ -51,9 +51,9 @@ Common HTTP status codes:
 
 ## Endpoints
 
-### 1. Health Check
+### 1. Models state Check
 
-**GET** `/health`
+**GET** `/models-state`
 
 Check the API status and model loading status.
 
@@ -80,7 +80,7 @@ Check the API status and model loading status.
 #### Example
 
 ```bash
-curl -X GET http://localhost:5000/health
+curl -X GET http://localhost:5000/models-state
 ```
 
 **Status Codes:**
@@ -436,10 +436,10 @@ curl -X POST http://localhost:5000/predict-sales \
 2. Set the base URL variable: `{{base_url}}` = `http://localhost:5000`
 3. Import the following requests:
 
-### Health Check
+### Models state Check
 
 ```
-GET {{base_url}}/health
+GET {{base_url}}/models-state
 ```
 
 ### Recommendation

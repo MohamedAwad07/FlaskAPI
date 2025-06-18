@@ -102,7 +102,7 @@ def load_models():
 
 
 
-        # Sales prediction model and preprocessors
+        # Sales prediction model
         sales_dir = os.path.join("models", "sales")
         sales_model_path = os.path.join(sales_dir, "sales.pkl")
         #xgboost_model_path = os.path.join(sales_dir, "XGBoost.pkl")
@@ -206,8 +206,10 @@ def validate_sales_input(data):
     
     return True, "Valid input"
 
-@app.route('/', methods=['GET'])
 
+#End Points
+
+@app.route('/', methods=['GET'])
 def welcome():
     """Welcome page with API information"""
     return jsonify({
@@ -266,9 +268,10 @@ def welcome():
         "timestamp": datetime.now().isoformat()
     })
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
+
+@app.route('/models-state', methods=['GET'])
+def models_check():
+    """Models check endpoint"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -313,8 +316,9 @@ def recommend_products():
             return jsonify({"error": "customer_id must be a valid integer"}), 400
         
         
-        #TODO: change this to a real customer id check
-        is_new_customer = int(str(customer_id)) < 1000  # Example
+        #TODO: Change this to a real customer id check
+        
+        is_new_customer = int(str(customer_id)) < 1000
         if is_new_customer:
             # Use loaded popular products if available
             if popular_products is not None:
@@ -334,9 +338,8 @@ def recommend_products():
             # Personalized recommendations using SVD model
             if recommendation_model is not None and popular_products is not None:
                 try:
-                    # Get all product names
+                    
                     all_items = list(popular_products.keys())
-                    # For demo, recommend top 5 not purchased (simulate)
                     predictions = [
                         (item, recommendation_model.predict(str(customer_id), item).est)
                         for item in all_items
@@ -370,7 +373,6 @@ def recommend_products():
     except Exception as e:
         logger.error(f"Error in recommend endpoint: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
-
 
 
 @app.route('/detect-spam', methods=['POST'])
@@ -414,16 +416,17 @@ def detect_spam():
             logger.info(f"Encoded features before scaling: {features}")
             
             features_scaled = spam_scaler.transform([features])
+            
             logger.info(f"Scaled features: {features_scaled}")
             logger.info(f"Scaled features shape: {features_scaled.shape}")
             
             # Model prediction
-            prediction = spam_detection_model.predict(features_scaled)[0]
+            prediction = spam_detection_model.predict([features])[0]
             logger.info(f"Raw model prediction: {prediction}")
             
             # Prediction probabilities (if available)
             if hasattr(spam_detection_model, 'predict_proba'):
-                proba = spam_detection_model.predict_proba(features_scaled)[0]
+                proba = spam_detection_model.predict_proba([features])[0]
                 logger.info(f"Prediction probabilities: {proba}")
             else:
                 proba = None
@@ -443,30 +446,15 @@ def detect_spam():
             #    # Fallback: map 0/1 to labels
             #    label = "not spam" if prediction == 0 else "spam"
             
-            #confidence = float(max(spam_detection_model.predict_proba(features_scaled)[0])) if hasattr(spam_detection_model, 'predict_proba') else None
-            
-        #else:
-        #    # Fallback logic if model or scaler not available
-
-        #    numeric_features = [
-        #        data["Profile_Completeness"],
-        #        data["Customer_Feedback"],
-        #        data["Transaction_History"]
-        #    ]
-        #    avg_score = sum(numeric_features) / len(numeric_features)
-        #    label = "spam" if avg_score < 0.5 else "not spam"
-        #    confidence = avg_score
         
         return jsonify({
             "input_features": data,
             "prediction": label,
-            #"confidence_score": round(confidence, 3) if confidence is not None else None,
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
         logger.error(f"Error in detect-spam endpoint: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
-
 
 
 @app.route('/predict-sales', methods=['POST'])
@@ -478,7 +466,6 @@ def predict_sales():
         if not data:
             return jsonify({'error': 'No JSON data provided'}), 400
             
-        # Validate input using the validate_sales_input function
         is_valid, error_message = validate_sales_input(data)
         if not is_valid:
             return jsonify({"error": error_message}), 400
@@ -506,18 +493,19 @@ def predict_sales():
             numerical_data = np.array([[data['ad_budget'], data['unit_price'], data['units_sold']]])
             numerical_scaled = sales_scaler.transform(numerical_data)[0]
             
-            # Combine all features in the exact order the model expects
+            
+            #TODO: Check if this is the correct order
             features = [
                 numerical_scaled[0],  # ad_budget
                 numerical_scaled[1],  # unit_price
-                numerical_scaled[2],  # units_sold
+                numerical_scaled[2] , # units_sold
                 float(product_type_encoded),  # product_type_encoded
                 season_encoded,  # season_encoded
                 marketing_channel_Affiliate,  # marketing_channel_Affiliate
                 marketing_channel_Direct,  # marketing_channel_Direct
                 marketing_channel_Email,  # marketing_channel_Email
                 marketing_channel_Search_Engine,  # marketing_channel_Search Engine
-                marketing_channel_Social_Media  # marketing_channel_Social Media
+                marketing_channel_Social_Media,  # marketing_channel_Social Media
             ]
             
             features_array = np.array([features])
@@ -574,12 +562,7 @@ def predict_sales():
             return jsonify({
                 'predicted_sales_revenue': float(prediction[0]),
                 'input_features': data,
-                'transformed_features': features_python,
-                'feature_names': [
-                    'ad_budget', 'unit_price', 'units_sold', 'product_type_encoded', 'season_encoded',
-                    'marketing_channel_Affiliate', 'marketing_channel_Direct', 'marketing_channel_Email',
-                    'marketing_channel_Search_Engine', 'marketing_channel_Social_Media'
-                ]
+                #'transformed_features': features_python,
             })
             
         except Exception as e:
@@ -589,6 +572,10 @@ def predict_sales():
     except Exception as e:
         logging.error(f"Error in sales prediction endpoint: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+
+#End Points for error handling
 
 @app.errorhandler(404)
 def not_found(error):
