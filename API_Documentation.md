@@ -113,35 +113,41 @@ Get product recommendations for a customer based on their ID.
 
 ```json
 {
+  "status_code": 200,
   "customer_id": "12345",
-  "is_new_customer": false,
+  "user_type": "existing",
   "recommendations": [
     {
-      "product_id": "P101",
-      "name": "Personalized Item 1",
-      "score": 0.88
+      "item_id": 1,
+      "item_name": "Item_1",
+      "predicted_rating": 4.8,
+      "confidence": false
     },
     {
-      "product_id": "P102",
-      "name": "Personalized Item 2",
-      "score": 0.85
+      "item_id": 2,
+      "item_name": "Item_2",
+      "predicted_rating": 4.5,
+      "confidence": false
     }
   ],
+  "model_used": "SVD Collaborative Filtering",
   "timestamp": "2024-01-15T10:30:00.000Z"
 }
 ```
 
 #### Response Fields
 
-| Field                        | Type    | Description                           |
-| ---------------------------- | ------- | ------------------------------------- |
-| customer_id                  | string  | The customer ID from the request      |
-| is_new_customer              | boolean | Whether this is a new customer        |
-| recommendations              | array   | List of recommended products          |
-| recommendations[].product_id | string  | Unique product identifier             |
-| recommendations[].name       | string  | Product name                          |
-| recommendations[].score      | float   | Recommendation confidence score (0-1) |
-| timestamp                    | string  | ISO timestamp of the response         |
+| Field                              | Type    | Description                       |
+| ---------------------------------- | ------- | --------------------------------- |
+| customer_id                        | string  | The customer ID from the request  |
+| user_type                          | string  | Type of user (existing or new)    |
+| recommendations                    | array   | List of recommended products      |
+| recommendations[].item_id          | int     | Unique product identifier         |
+| recommendations[].item_name        | string  | Product name                      |
+| recommendations[].predicted_rating | float   | Predicted rating (0-5)            |
+| recommendations[].confidence       | boolean | Confidence in the recommendation  |
+| model_used                         | string  | Model used for the recommendation |
+| timestamp                          | string  | ISO timestamp of the response     |
 
 #### Examples
 
@@ -165,11 +171,11 @@ curl -X POST http://localhost:5000/recommend \
 
 - **Missing Field:**
   ```json
-  { "error": "customer_id is required" }
+  { "status_code": 400, "error": "customer_id is required in JSON body" }
   ```
 - **No JSON Data:**
   ```json
-  { "error": "No JSON data provided" }
+  { "status_code": 400, "error": "No JSON data provided" }
   ```
 
 **Status Codes:**
@@ -213,6 +219,7 @@ Detect if a user profile is spam based on various metrics.
 
 ```json
 {
+  "status_code": 200,
   "input_features": {
     "Profile_Completeness": 0.8,
     "Sales_Consistency": "high",
@@ -230,11 +237,17 @@ Detect if a user profile is spam based on various metrics.
 
 - **Missing Field:**
   ```json
-  { "error": "Missing required field: Profile_Completeness" }
+  {
+    "status_code": 400,
+    "error": "Missing required field: Profile_Completeness"
+  }
   ```
 - **Invalid Value:**
   ```json
-  { "error": "Field Profile_Completeness must be between 0 and 1" }
+  {
+    "status_code": 400,
+    "error": "Field Profile_Completeness must be between 0 and 1"
+  }
   ```
 
 #### Fallback Logic
@@ -283,6 +296,7 @@ Predict sales revenue based on product type, season, marketing channel, ad budge
 
 ```json
 {
+  "status_code": 200,
   "predicted_sales_revenue": 12345.67,
   "input_features": {
     "product_type": "Camera",
@@ -323,17 +337,18 @@ Predict sales revenue based on product type, season, marketing channel, ad budge
 
 - **Missing Field:**
   ```json
-  { "error": "Missing required field: product_type" }
+  { "status_code": 400, "error": "Missing required field: product_type" }
   ```
 - **Invalid Category:**
   ```json
   {
+    "status_code": 400,
     "error": "Invalid product_type. Must be one of: ['Camera', 'Headphones', 'Laptop', 'Smartphone', 'TV', 'Tablet', 'Watch']"
   }
   ```
 - **Invalid Number:**
   ```json
-  { "error": "Field ad_budget must be a valid number" }
+  { "status_code": 400, "error": "Field ad_budget must be a valid number" }
   ```
 
 #### Fallback Logic

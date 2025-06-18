@@ -201,10 +201,15 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 #### Render.com
 
-1. Connect your GitHub repository
-2. Set build command: `pip install -r requirements.txt`
-3. Set start command: `gunicorn app:app`
-4. Add environment variables if needed
+1. Ensure your repo contains:
+   - All code
+   - All model files in the correct folders
+   - `requirements.txt`
+   - `render.yaml`
+2. Push to GitHub.
+3. Go to [Render](https://dashboard.render.com/), create a new Web Service, and connect your repo.
+4. Render will use `render.yaml` for build/start commands.
+5. Your API will be live at `https://<your-app-name>.onrender.com`
 
 #### Heroku
 
@@ -289,3 +294,9 @@ For questions or issues:
 - Create an issue in the repository
 - Check the troubleshooting section above
 - Review the API documentation
+
+## 📝 Notes
+
+- All endpoints return a `status_code` in the JSON response.
+- No guarantee of key order in JSON (per standard).
+- See DEPLOYMENT_GUIDE.md for full deployment instructions.

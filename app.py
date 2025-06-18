@@ -328,7 +328,6 @@ def recommend_products():
             try:
                 logger.info(f"Making recommendations for customer ID: {customer_id}")
                 trainset = recommendation_model.trainset
-                user_id_str = str(customer_id)
                 if customer_id in trainset.all_users():
                     # Existing user: personalized recommendations
                     all_items = trainset.all_items()
