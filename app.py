@@ -35,11 +35,18 @@ def load_models():
         rec_dir = os.path.join("models", "recomndation")
         rec_model_path = os.path.join(rec_dir, "svd_collaborative_model.pkl")
         pop_products_path = os.path.join(rec_dir, "popular_products.pkl")
-        
         try:
             if os.path.exists(rec_model_path):
                 recommendation_model = joblib.load(rec_model_path)
                 logging.info("Loaded SVD recommendation model.")
+                #print('Model type:', type(recommendation_model))
+                #print('Model attributes:', dir(recommendation_model))
+                #print('Predict method help:')
+                #help(recommendation_model.predict)
+                #print('Number of latent factors:', getattr(recommendation_model, 'n_factors', 'N/A'))
+                #print('Trainset:', getattr(recommendation_model, 'trainset', 'N/A'))
+                #print("-------------------------------- user inner ids" + str(list(recommendation_model.trainset.all_users())))
+                #print("-------------------------------- item inner ids" + str(list(recommendation_model.trainset.all_items())))
             else:
                 logging.warning("SVD recommendation model not found.")
         except ImportError as e:
@@ -47,7 +54,7 @@ def load_models():
                 logging.warning("Surprise library not available. Recommendation model will use fallback logic.")
             else:
                 logging.error(f"Error loading recommendation model: {e}")
-        
+        # Load popular products model
         try:
             if os.path.exists(pop_products_path):
                 popular_products = joblib.load(pop_products_path)
@@ -56,8 +63,6 @@ def load_models():
                 logging.warning("Popular products list not found.")
         except Exception as e:
             logging.error(f"Error loading popular products: {e}")
-
-
 
         # Spam detection model and preprocessors
         spam_dir = os.path.join("models", "spam-3", "spam")
@@ -213,6 +218,7 @@ def validate_sales_input(data):
 def welcome():
     """Welcome page with API information"""
     return jsonify({
+        "status_code": 200,
         "message": "Welcome to Flask AI/ML API Backend",
         "description": "A REST API serving three machine learning models for recommendation, spam detection, and sales prediction",
         "version": "1.0.0",
@@ -222,11 +228,17 @@ def welcome():
                 "method": "GET",
                 "description": "Check API status and model loading status"
             },
-            "recommendation": {
+            "recommendation_post": {
                 "url": "/recommend",
                 "method": "POST",
-                "description": "Get product recommendations for customers",
+                "description": "Get product recommendations for customers using POST",
                 "example_input": {"customer_id": "12345"}
+            },
+            "recommendation_get": {
+                "url": "/recommend/{customer_id}",
+                "method": "GET",
+                "description": "Get product recommendations for customers using GET with customer ID in URL",
+                "example": "/recommend/12345"
             },
             "spam_detection": {
                 "url": "/detect-spam",
@@ -260,23 +272,22 @@ def welcome():
             }
         },
         "models_status": {
-            "recommendation": recommendation_model is not None or popular_products is not None,
+            "recommendation": recommendation_model is not None,
             "spam_detection": spam_detection_model is not None,
             "sales_prediction": sales_prediction_model is not None
         },
         "documentation": "See /health for detailed model status and API_Documentation.md for complete documentation",
         "timestamp": datetime.now().isoformat()
-    })
-
+    }), 200
 
 @app.route('/models-state', methods=['GET'])
 def models_check():
-    """Models check endpoint"""
     return jsonify({
+        "status_code": 200,
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "models_loaded": {
-            "recommendation": recommendation_model is not None or popular_products is not None,
+            "recommendation": recommendation_model is not None,
             "spam_detection": spam_detection_model is not None,
             "sales_prediction": sales_prediction_model is not None
         },
@@ -290,90 +301,98 @@ def models_check():
             "marketing_channel_encoder": sales_marketing_channel_encoder is not None,
             "season_encoder": sales_season_encoder is not None,
             "sales_scaler": sales_scaler is not None
-        }
-    })
-
+        },
+    }), 200
 
 @app.route('/recommend', methods=['POST'])
 def recommend_products():
-    """Recommend products for a customer"""
+    """Recommend products for a customer based on customer ID"""
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
-        
+            return jsonify({"status_code": 400, "error": "No JSON data provided"}), 400
+        if 'customer_id' not in data:
+            return jsonify({"status_code": 400, "error": "customer_id is required in JSON body"}), 400
         customer_id = data.get('customer_id')
-        
-        if not customer_id:
-            return jsonify({"error": "customer_id is required"}), 400
-        
-        # Validate customer_id is a number and > 1
-        try:
-            customer_id_num = int(customer_id)
-            if customer_id_num <= 1:
-                return jsonify({"error": "customer_id must be greater than 1"}), 400
-        except ValueError:
-            return jsonify({"error": "customer_id must be a valid integer"}), 400
+        if customer_id is None:
+            return jsonify({"status_code": 400, "error": "customer_id cannot be null"}), 400
+        if customer_id == "":
+            return jsonify({"status_code": 400, "error": "customer_id cannot be empty"}), 400
+        if not isinstance(customer_id, int):
+            return jsonify({"status_code": 400, "error": "customer_id must be an integer, not a string or other type"}), 400
+        if customer_id <= 0:
+            return jsonify({"status_code": 400, "error": "customer_id must be greater than 0"}), 400
         
         
-        #TODO: Change this to a real customer id check
-        
-        is_new_customer = int(str(customer_id)) < 1000
-        if is_new_customer:
-            # Use loaded popular products if available
-            if popular_products is not None:
-                top_products = [
-                    {"product_id": str(i+1), "name": name, "score": float(sales)}
-                    for i, (name, sales) in enumerate(popular_products.items())
-                ]
-            else:
-                top_products = [
-                    {"product_id": "P001", "name": "Premium Widget", "score": 0.95},
-                    {"product_id": "P002", "name": "Super Gadget", "score": 0.92},
-                    {"product_id": "P003", "name": "Ultra Device", "score": 0.89},
-                    {"product_id": "P004", "name": "Mega Tool", "score": 0.87},
-                    {"product_id": "P005", "name": "Pro Equipment", "score": 0.85}
-                ]
+        if recommendation_model is not None:
+            try:
+                logger.info(f"Making recommendations for customer ID: {customer_id}")
+                trainset = recommendation_model.trainset
+                user_id_str = str(customer_id)
+                if customer_id in trainset.all_users():
+                    # Existing user: personalized recommendations
+                    all_items = trainset.all_items()
+                    predictions = []
+                    for item_id in all_items:
+                        try:
+                            item_name = f"Item_{item_id}"
+                            prediction = recommendation_model.predict(customer_id, item_id)
+                            predictions.append({
+                                "item_id": item_id,
+                                "item_name": item_name,
+                                "predicted_rating": prediction.est,
+                                "confidence": prediction.details.get('was_impossible', False)
+                            })
+                        except Exception as e:
+                            logger.warning(f"Could not predict for item {item_id}: {e}")
+                            continue
+                    predictions.sort(key=lambda x: x['predicted_rating'], reverse=True)
+                    top_recommendations = predictions[:10]
+                    logger.info(f"Generated {len(top_recommendations)} personalized recommendations")
+                    return jsonify({
+                        "status_code": 200,
+                        "customer_id": customer_id,
+                        "user_type": "existing",
+                        "recommendations": top_recommendations,
+                        "model_used": "SVD Collaborative Filtering",
+                        "timestamp": datetime.now().isoformat()
+                    }), 200
+                else:
+                    # New user: return top products from popular_products model
+                    if popular_products is not None:
+                        top_products = [
+                            {"item_id": i+1, "item_name": name, "score": float(score)}
+                            for i, (name, score) in enumerate(list(popular_products.items())[:5])
+                        ]
+                    else:
+                        top_products = []
+                    logger.info("New user detected. Returning popular products from model.")
+                    return jsonify({
+                        "status_code": 200,
+                        "customer_id": customer_id,
+                        "user_type": "new",
+                        "recommendations": top_products,
+                        "model_used": "Popular Products Model",
+                        "timestamp": datetime.now().isoformat()
+                    }), 200
+            except Exception as e:
+                logger.error(f"Error making recommendation prediction: {e}")
+                return jsonify({
+                    "status_code": 500,
+                    "error": "Failed to generate recommendations",
+                    "customer_id": customer_id,
+                    "details": str(e)
+                }), 500
         else:
-            # Personalized recommendations using SVD model
-            if recommendation_model is not None and popular_products is not None:
-                try:
-                    
-                    all_items = list(popular_products.keys())
-                    predictions = [
-                        (item, recommendation_model.predict(str(customer_id), item).est)
-                        for item in all_items
-                    ]
-                    top_recs = sorted(predictions, key=lambda x: x[1], reverse=True)[:5]
-                    recommended_products = [
-                        {"product_id": str(i+1), "name": item, "score": float(score)}
-                        for i, (item, score) in enumerate(top_recs)
-                    ]
-                except Exception as e:
-                    logging.error(f"Error making recommendation prediction: {e}")
-                    # Fallback to popular products
-                    recommended_products = [
-                        {"product_id": "P001", "name": "Premium Widget", "score": 0.95},
-                        {"product_id": "P002", "name": "Super Gadget", "score": 0.92},
-                        {"product_id": "P003", "name": "Ultra Device", "score": 0.89}
-                    ]
-            else:
-                recommended_products = [
-                    {"product_id": "P001", "name": "Premium Widget", "score": 0.95},
-                    {"product_id": "P002", "name": "Super Gadget", "score": 0.92},
-                    {"product_id": "P003", "name": "Ultra Device", "score": 0.89}
-                ]
-            top_products = recommended_products
-        return jsonify({
-            "customer_id": customer_id,
-            "is_new_customer": is_new_customer,
-            "recommendations": top_products,
-            "timestamp": datetime.now().isoformat()
-        })
+            logger.warning("Recommendation model not available")
+            return jsonify({
+                "status_code": 500,
+                "error": "Recommendation model not loaded",
+                "customer_id": customer_id
+            }), 500
     except Exception as e:
         logger.error(f"Error in recommend endpoint: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
-
+        return jsonify({"status_code": 500, "error": "Internal server error"}), 500
 
 @app.route('/detect-spam', methods=['POST'])
 def detect_spam():
@@ -381,10 +400,10 @@ def detect_spam():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
+            return jsonify({"status_code": 400, "error": "No JSON data provided"}), 400
         is_valid, error_message = validate_spam_input(data)
         if not is_valid:
-            return jsonify({"error": error_message}), 400
+            return jsonify({"status_code": 400, "error": error_message}), 400
         
         # Prepare features for prediction
         if spam_detection_model and spam_scaler:
@@ -448,14 +467,14 @@ def detect_spam():
             
         
         return jsonify({
+            "status_code": 200,
             "input_features": data,
             "prediction": label,
             "timestamp": datetime.now().isoformat()
-        })
+        }), 200
     except Exception as e:
         logger.error(f"Error in detect-spam endpoint: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
-
+        return jsonify({"status_code": 500, "error": "Internal server error"}), 500
 
 @app.route('/predict-sales', methods=['POST'])
 def predict_sales():
@@ -464,16 +483,16 @@ def predict_sales():
         data = request.get_json()
         
         if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
+            return jsonify({"status_code": 400, "error": "No JSON data provided"}), 400
             
         is_valid, error_message = validate_sales_input(data)
         if not is_valid:
-            return jsonify({"error": error_message}), 400
+            return jsonify({"status_code": 400, "error": error_message}), 400
         
         # Check if encoders and scaler are loaded
         if not (sales_product_type_encoder and sales_marketing_channel_encoder and 
                 sales_season_encoder and sales_scaler):
-            return jsonify({'error': 'Sales encoders or scaler not loaded'}), 500
+            return jsonify({"status_code": 500, "error": "Sales encoders or scaler not loaded"}), 500
         
         # Transform input using encoders and scaler
         try:
@@ -512,7 +531,7 @@ def predict_sales():
             
         except Exception as e:
             logging.error(f"Error transforming features: {str(e)}")
-            return jsonify({'error': f'Feature transformation error: {str(e)}'}), 500
+            return jsonify({"status_code": 500, "error": f"Feature transformation error: {str(e)}"}), 500
         
         # Check if model is available
         if sales_prediction_model is None:
@@ -541,11 +560,12 @@ def predict_sales():
             features_python = [float(f) if isinstance(f, (np.integer, np.floating)) else int(f) for f in features]
             
             return jsonify({
+                "status_code": 200,
                 'predicted_sales_revenue': round(predicted_revenue, 2),
                 'input_features': data,
                 'transformed_features': features_python,
                 'note': 'Using fallback prediction due to model feature mismatch'
-            })
+            }), 200
         
         # Make prediction with the model
         try:
@@ -560,18 +580,18 @@ def predict_sales():
             features_python = [float(f) if isinstance(f, (np.integer, np.floating)) else int(f) for f in features]
             
             return jsonify({
+                "status_code": 200,
                 'predicted_sales_revenue': float(prediction[0]),
                 'input_features': data,
-                #'transformed_features': features_python,
-            })
+            }), 200
             
         except Exception as e:
             logging.error(f"Error in sales prediction: {str(e)}")
-            return jsonify({'error': f'Prediction error: {str(e)}'}), 500
+            return jsonify({"status_code": 500, "error": f'Prediction error: {str(e)}'}), 500
 
     except Exception as e:
         logging.error(f"Error in sales prediction endpoint: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({"status_code": 500, "error": 'Internal server error'}), 500
 
 
 
@@ -579,15 +599,15 @@ def predict_sales():
 
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({"error": "Endpoint not found"}), 404
+    return jsonify({"status_code": 404, "error": "Endpoint not found"}), 404
 
 @app.errorhandler(405)
 def method_not_allowed(error):
-    return jsonify({"error": "Method not allowed"}), 405
+    return jsonify({"status_code": 405, "error": "Method not allowed"}), 405
 
 @app.errorhandler(500)
 def internal_error(error):
-    return jsonify({"error": "Internal server error"}), 500
+    return jsonify({"status_code": 500, "error": "Internal server error"}), 500
 
 if __name__ == '__main__':
     # Run the Flask app
