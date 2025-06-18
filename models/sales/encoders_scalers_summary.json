@@ -1,0 +1,67 @@
+{
+  "categorical_features": {
+    "product_type": {
+      "encoder_file": "product_type_encoder.pkl",
+      "classes": [
+        "Camera",
+        "Headphones",
+        "Laptop",
+        "Smartphone",
+        "TV",
+        "Tablet",
+        "Watch"
+      ]
+    },
+    "marketing_channel": {
+      "encoder_file": "marketing_channel_encoder.pkl",
+      "classes": [
+        "Affiliate",
+        "Direct",
+        "Email",
+        "Search Engine",
+        "Social Media"
+      ]
+    },
+    "season": {
+      "encoder_file": "season_encoder.pkl",
+      "classes": [
+        "Fall",
+        "Spring",
+        "Summer",
+        "Winter"
+      ]
+    }
+  },
+  "numerical_features": {
+    "scaler_file": "sales_scaler.pkl",
+    "features": [
+      "ad_budget",
+      "unit_price",
+      "units_sold"
+    ],
+    "means": [
+      10254.3831453,
+      663.5499268209875,
+      30.20189
+    ],
+    "scales": [
+      5629.433939282777,
+      351.40436946424074,
+      225.48089881501693
+    ]
+  },
+  "feature_transformer_file": "feature_transformer.pkl",
+  "data_info": {
+    "total_samples": 100000,
+    "features": [
+      "product_type",
+      "marketing_channel",
+      "season",
+      "ad_budget",
+      "unit_price",
+      "units_sold",
+      "sales_revenue"
+    ],
+    "target": "sales_revenue"
+  }
+}
